@@ -80,13 +80,13 @@ export const finishGithubLogin = async (req, res) => {
 
   const config = {
     client_id: process.env.GH_CLIENT,
-    client_secret: process.env.GH_SCREET,
+    client_secret: process.env.GH_SECRET,
     code: req.query.code,
   };
   const params = new URLSearchParams(config).toString();
   const finalUrl = `${baseUrl}?${params}`;
 
-  const tokenRequset = await (
+  const tokenRequest = await (
     await fetch(finalUrl, {
       method: 'POST',
       headers: {
@@ -95,9 +95,9 @@ export const finishGithubLogin = async (req, res) => {
     })
   ).json();
 
-  if ('access_token' in tokenRequset) {
+  if ('access_token' in tokenRequest) {
     //access api
-    const { access_token } = tokenRequset;
+    const { access_token } = tokenRequest;
     const apiUrl = 'https://api.github.com';
     const userData = await (
       await fetch(`${apiUrl}/user`, {
@@ -134,8 +134,6 @@ export const finishGithubLogin = async (req, res) => {
     // 이후, 로그인 진행
     req.session.loggedIn = true;
     req.session.user = user;
-    console.log('유저 정보 : ', user);
-    console.log('세션 유저: ', req.session.user);
     res.redirect('/');
   } else {
     // if access_token is not in tokenRequest
@@ -147,4 +145,81 @@ export const logout = (req, res) => {
   req.session.destroy();
   res.redirect('/');
 };
+
+export const startKakaoLogin = (req, res) => {
+  const baseUrl = 'https://kauth.kakao.com/oauth/authorize';
+  const config = {
+    client_id: process.env.KAKAO_CLIENT,
+    redirect_uri: 'http://localhost:4000/users/kakao/finish',
+    response_type: 'code',
+  };
+  const params = new URLSearchParams(config).toString();
+
+  const finalUrl = `${baseUrl}?${params}`;
+  console.log(finalUrl);
+  return res.redirect(finalUrl);
+};
+
+export const finishKakaoLogin = async (req, res) => {
+  const baseUrl = 'https://kauth.kakao.com/oauth/token';
+  const config = {
+    client_id: process.env.KAKAO_CLIENT,
+    client_secret: process.env.KAKAO_SECRET,
+    grant_type: 'authorization_code',
+    redirect_uri: 'http://localhost:4000/users/kakao/finish',
+    code: req.query.code,
+  };
+  const params = new URLSearchParams(config).toString();
+  const finalUrl = `${baseUrl}?${params}`;
+  const kakaoTokenRequest = await (
+    await fetch(finalUrl, {
+      method: 'POST',
+      headers: {
+        'Content-type': 'application/json',
+      },
+    })
+  ).json();
+
+  if ('access_token' in kakaoTokenRequest) {
+    const { access_token } = kakaoTokenRequest;
+    const userRequest = await (
+      await fetch('https://kapi.kakao.com/v2/user/me', {
+        headers: {
+          Authorization: `Bearer ${access_token}`,
+          'Content-type': 'application/json',
+        },
+      })
+    ).json();
+
+    const userData = userRequest.kakao_account;
+    let emailData;
+    if (userData.is_email_valid && userData.is_email_verified) {
+      emailData = userRequest.kakao_account.email;
+    }
+
+    if (!emailData) {
+      return res.redirect('/login');
+    }
+    let user = await User.findOne({ email: emailData }); //User db에 존재하는 이메일이라면, 계정이 이미 있다는 뜻
+    if (!user) {
+      // 존재한 계정이 없다면 계정 생성
+      user = await User.create({
+        name: userData.profile.nickname,
+        username: userData.profile.nickname,
+        password: '',
+        email: emailData,
+        socialOnly: true,
+        location: '',
+        avatarUrl: '',
+      });
+    }
+    // 이후, 로그인 진행
+    req.session.loggedIn = true;
+    req.session.user = user;
+    res.redirect('/');
+  } else {
+    res.redirect('/login');
+  }
+};
+
 export const see = (req, res) => res.send('See User');
